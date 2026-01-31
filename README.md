@@ -1,6 +1,7 @@
 # 🎬 ReelTransfer
 
-![Version](https://img.shields.io/github/v/release/artyomjanzen1/ReelTransfer)
+![Version](https://img.shields.io/github/v/release/SecuredNodeDynamics/ReelTransfer)
+![License](https://img.shields.io/github/license/SecuredNodeDynamics/ReelTransfer)
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 
 **ReelTransfer** is a Windows desktop app for moving media files and folders using Robocopy with a clean, preview-first workflow.
