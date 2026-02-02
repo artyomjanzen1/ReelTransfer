@@ -35,6 +35,7 @@ def build_plan(
     duplicate_action: Literal["ask", "skip", "overwrite", "rename"] = "ask",
     include_files: list[str] | None = None,
     include_file_list: bool = False,
+    exclude_files: list[str] | None = None,
 ) -> RoboCopyPlan:
     if not src.exists():
         raise ValueError("Source does not exist.")
@@ -64,6 +65,8 @@ def build_plan(
         args += ["/IS", "/IT"]
     if include_files:
         args += ["/IF", *include_files]
+    if exclude_files:
+        args += ["/XF", *exclude_files]
     if include_file_list:
         args.append("/BYTES")
     else:

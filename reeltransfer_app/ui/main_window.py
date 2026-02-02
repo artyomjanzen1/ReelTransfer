@@ -24,7 +24,7 @@ from reeltransfer_app.core.transfer import (
 
 
 APP_NAME = "ReelTransfer"
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.2.6"
 
 
 def _to_int(value: object, default: int) -> int:
@@ -52,6 +52,7 @@ class MainWindow(QMainWindow):
         self._progress_copied_files = 0
         self._progress_copied_bytes = 0
         self._output_buffer = ""
+        self._progress_enabled = True
         self._file_line_re = re.compile(
             r"^\s*(New File|Newer|Older|Changed)\s+([0-9,]+)\s+",
             re.IGNORECASE,
@@ -78,6 +79,8 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.src_edit, 1)
         row1.addWidget(self.btn_src)
         row1.addWidget(self.btn_src_files)
+        self.src_storage_card, self.src_storage_value = self._make_storage_card("Source Storage")
+        row1.addWidget(self.src_storage_card)
 
         row2 = QHBoxLayout()
         layout.addLayout(row2)
@@ -87,6 +90,8 @@ class MainWindow(QMainWindow):
         self.btn_dst = QPushButton("Browse…")
         row2.addWidget(self.dst_edit, 1)
         row2.addWidget(self.btn_dst)
+        self.dst_storage_card, self.dst_storage_value = self._make_storage_card("Destination Storage")
+        row2.addWidget(self.dst_storage_card)
 
         # Options
         opts = QHBoxLayout()
@@ -177,8 +182,38 @@ class MainWindow(QMainWindow):
         self.btn_clear.clicked.connect(self.log.clear)
         self.chk_mirror.toggled.connect(self._mirror_toggled)
         self.src_edit.textEdited.connect(self._src_text_edited)
+        self.src_edit.textChanged.connect(self._update_storage_cards)
+        self.dst_edit.textChanged.connect(self._update_storage_cards)
 
         self._load_settings()
+        self._update_storage_cards()
+
+    @staticmethod
+    def _extract_path_text(text: str) -> str:
+        if "  (" in text:
+            return text.split("  (", 1)[0].strip()
+        return text.strip()
+
+    def _make_storage_card(self, title: str) -> tuple[QWidget, QLabel]:
+        card = QWidget()
+        card.setMinimumWidth(220)
+        card.setStyleSheet(
+            "QWidget {"
+            "border: 1px solid #3a3f44;"
+            "border-radius: 6px;"
+            "padding: 6px;"
+            "background-color: #1f2329;"
+            "}"
+            "QLabel { color: #d5dbe3; }"
+        )
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(8, 6, 8, 6)
+        title_label = QLabel(f"<b>{title}</b>")
+        value_label = QLabel("—")
+        value_label.setWordWrap(True)
+        layout.addWidget(title_label)
+        layout.addWidget(value_label)
+        return card, value_label
 
     def _show_about(self) -> None:
         QMessageBox.information(
@@ -193,6 +228,7 @@ class MainWindow(QMainWindow):
         if folder:
             self.src_edit.setText(folder)
             self._source_files = []
+            self._update_storage_cards()
 
     def _pick_src_files(self) -> None:
         files, _ = QFileDialog.getOpenFileNames(
@@ -206,6 +242,7 @@ class MainWindow(QMainWindow):
             self._source_files = paths
             parent = paths[0].parent
             self.src_edit.setText(f"{parent}  ({len(paths)} file(s))")
+            self._update_storage_cards()
 
     def _src_text_edited(self) -> None:
         if self._source_files:
@@ -215,6 +252,7 @@ class MainWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Select destination folder", str(Path.home()))
         if folder:
             self.dst_edit.setText(folder)
+            self._update_storage_cards()
 
     def _mirror_toggled(self, checked: bool) -> None:
         if checked:
@@ -272,19 +310,22 @@ class MainWindow(QMainWindow):
         data = bytes(proc.readAllStandardOutput().data()).decode(errors="ignore")
         if data:
             self.log.append(data.replace("\n", "<br>"))
-            self._consume_output_lines(data)
+            if self._progress_enabled:
+                self._consume_output_lines(data)
 
     def _on_finished(self, exit_code: int, _status) -> None:
         self._set_running(False)
-        if self._progress_total_files or self._progress_total_bytes:
-            self._update_progress(final=True)
 
         # Robocopy exit codes: 0-7 are success/warnings, >=8 is failure
         if exit_code >= 8:
+            self._update_progress(final=True)
             self.statusBar().showMessage(f"Transfer failed (code {exit_code})", 8000)
+            current = self.progress.value()
+            self.progress.setFormat(f"Progress: {current}% (failed)")
             QMessageBox.warning(self, "Transfer failed", f"Robocopy failed with code {exit_code}.")
             return
         else:
+            self._update_progress(final=True)
             self.statusBar().showMessage(f"Transfer complete (code {exit_code})", 6000)
 
         if self._duplicate_action == "rename" and self._duplicate_pairs:
@@ -359,7 +400,7 @@ class MainWindow(QMainWindow):
 
         clicked = box.clickedButton()
         if clicked == btn_skip:
-            self._duplicate_pairs = []
+            self._duplicate_pairs = pairs
             return "skip"
         if clicked == btn_overwrite:
             self._duplicate_pairs = []
@@ -416,6 +457,18 @@ class MainWindow(QMainWindow):
         dup_action = cast(Literal["ask", "skip", "overwrite", "rename"], dup_action)
         self._duplicate_action = dup_action
 
+        exclude_files: list[str] | None = None
+        if for_execution and dup_action == "skip" and self._duplicate_pairs:
+            relative_paths: list[str] = []
+            for src_file, _ in self._duplicate_pairs:
+                try:
+                    rel = src_file.relative_to(src)
+                except ValueError:
+                    rel = Path(src_file.name)
+                relative_paths.append(str(rel))
+            max_excludes = 200
+            exclude_files = relative_paths[:max_excludes]
+
         try:
             return build_plan(
                 src,
@@ -430,6 +483,7 @@ class MainWindow(QMainWindow):
                 duplicate_action=dup_action,
                 include_files=include_files,
                 include_file_list=for_execution,
+                exclude_files=exclude_files,
             )
         except Exception as e:
             QMessageBox.critical(self, "Invalid Setup", str(e))
@@ -460,21 +514,57 @@ class MainWindow(QMainWindow):
                 if total_bytes > 0 and free < total_bytes:
                     needed_mb = total_bytes / (1024 * 1024)
                     free_mb = free / (1024 * 1024)
+                    needed_gb = total_bytes / (1024 * 1024 * 1024)
+                    free_gb = free / (1024 * 1024 * 1024)
+                    if needed_gb >= 10:
+                        needed_text = f"~{needed_gb:,.2f} GB"
+                        free_text = f"~{free_gb:,.2f} GB"
+                    else:
+                        needed_text = f"~{needed_mb:,.2f} MB"
+                        free_text = f"~{free_mb:,.2f} MB"
                     QMessageBox.warning(
                         self,
                         "Low disk space",
                         f"Destination may not have enough space.\n\n"
-                        f"Needed: ~{needed_mb:,.2f} MB\n"
-                        f"Free: ~{free_mb:,.2f} MB",
+                        f"Needed: {needed_text}\n"
+                        f"Free: {free_text}",
                     )
             except Exception:
                 self.log.append("<b>Preflight:</b> Unable to check free space.")
 
         if self.chk_dry_run.isChecked():
+            self._progress_enabled = False
             self.statusBar().showMessage("Dry run enabled — no files will be changed", 6000)
-            self.progress.setFormat("Progress: 0% (dry run)")
+            self.progress.setValue(0)
+            self.progress.setFormat("Progress: disabled (dry run)")
+        else:
+            self._progress_enabled = True
 
         return True
+
+    def _update_storage_cards(self) -> None:
+        src_text = self._extract_path_text(self.src_edit.text())
+        dst_text = self._extract_path_text(self.dst_edit.text())
+        self._update_storage_card_value(self.src_storage_value, src_text)
+        self._update_storage_card_value(self.dst_storage_value, dst_text)
+
+    def _update_storage_card_value(self, label: QLabel, path_text: str) -> None:
+        if not path_text:
+            label.setText("—")
+            return
+        path = Path(path_text).expanduser()
+        if not path.exists():
+            label.setText("Unavailable")
+            return
+        if path.is_file():
+            path = path.parent
+        try:
+            usage = shutil.disk_usage(path)
+            label.setText(
+                f"{self._format_bytes(usage.free)} free / {self._format_bytes(usage.total)} total"
+            )
+        except Exception:
+            label.setText("Unavailable")
 
     def _consume_output_lines(self, data: str) -> None:
         self._output_buffer += data
@@ -525,8 +615,12 @@ class MainWindow(QMainWindow):
                 f"Progress: {percent}% ({copied_files} / {total_files} files)"
             )
         elif final:
-            self.progress.setValue(100)
-            self.progress.setFormat("Progress: 100%")
+            if copied_bytes > 0 or copied_files > 0:
+                self.progress.setValue(100)
+                self.progress.setFormat("Progress: 100%")
+            else:
+                self.progress.setValue(0)
+                self.progress.setFormat("Progress: 0%")
 
     @staticmethod
     def _format_bytes(value: int) -> str:
