@@ -50,7 +50,7 @@ Built with **Python + PySide6**, ReelTransfer is designed to replace manual drag
 ## 📦 Installation
 
 ### 🔹 Windows (Recommended)
-1. Download `ReelTransfer-Setup-1.2.6.exe` from the **Releases** page
+1. Download `ReelTransfer-Setup-1.2.7.exe` from the **Releases** page
 2. Double‑click the installer
 3. Follow the setup wizard
 4. Launch ReelTransfer from the Start Menu

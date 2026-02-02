@@ -1,5 +1,5 @@
 #define MyAppName "ReelTransfer"
-#define MyAppVersion "1.2.6"
+#define MyAppVersion "1.2.7"
 #define MyAppPublisher "ReelTransfer"
 #define MyAppExeName "reeltransfer.exe"
 

@@ -24,7 +24,7 @@ from reeltransfer_app.core.transfer import (
 
 
 APP_NAME = "ReelTransfer"
-APP_VERSION = "1.2.6"
+APP_VERSION = "1.2.7"
 
 
 def _to_int(value: object, default: int) -> int:
@@ -79,7 +79,7 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.src_edit, 1)
         row1.addWidget(self.btn_src)
         row1.addWidget(self.btn_src_files)
-        self.src_storage_card, self.src_storage_value = self._make_storage_card("Source Storage")
+        self.src_storage_card, self.src_storage_value = self._make_storage_card("Source Size")
         row1.addWidget(self.src_storage_card)
 
         row2 = QHBoxLayout()
@@ -545,8 +545,41 @@ class MainWindow(QMainWindow):
     def _update_storage_cards(self) -> None:
         src_text = self._extract_path_text(self.src_edit.text())
         dst_text = self._extract_path_text(self.dst_edit.text())
-        self._update_storage_card_value(self.src_storage_value, src_text)
+        self._update_source_size_card_value(self.src_storage_value, src_text)
         self._update_storage_card_value(self.dst_storage_value, dst_text)
+
+    def _update_source_size_card_value(self, label: QLabel, path_text: str) -> None:
+        files = self._source_files if self._source_files else None
+        if files:
+            count, total_bytes = estimate_transfer(
+                files[0].parent,
+                include_subdirs=self.chk_subdirs.isChecked(),
+                files=files,
+            )
+            label.setText(f"{self._format_bytes(total_bytes)} ({count} file(s))")
+            return
+
+        if not path_text:
+            label.setText("—")
+            return
+
+        path = Path(path_text).expanduser()
+        if not path.exists():
+            label.setText("Unavailable")
+            return
+        if path.is_file():
+            try:
+                size = path.stat().st_size
+                label.setText(f"{self._format_bytes(size)} (1 file)")
+            except OSError:
+                label.setText("Unavailable")
+            return
+
+        count, total_bytes = estimate_transfer(
+            path,
+            include_subdirs=self.chk_subdirs.isChecked(),
+        )
+        label.setText(f"{self._format_bytes(total_bytes)} ({count} file(s))")
 
     def _update_storage_card_value(self, label: QLabel, path_text: str) -> None:
         if not path_text:
